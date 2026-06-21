@@ -2,6 +2,8 @@ import psycopg2
 from faker import Faker
 import random
 from datetime import datetime
+from validation_model import Customer, Product, Order, OrderItem
+from pydantic import ValidationError
 
 fake = Faker("fr_FR")
 
@@ -68,7 +70,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 conn.commit()
 
 # ---------------------------------------------------------
-# 2) Génération customers + products
+# 2) Génération customers + products (avec validation Pydantic)
 # ---------------------------------------------------------
 
 categories = ["Électronique", "Vêtements", "Alimentation", "Maison", "Sport"]
@@ -76,31 +78,57 @@ categories = ["Électronique", "Vêtements", "Alimentation", "Maison", "Sport"]
 for _ in range(30):
 
     # ----- Customers -----
-    nom = fake.name()
-    email = fake.email()
-    ville = fake.city()
-    date_naissance = fake.date_of_birth(minimum_age=18, maximum_age=80)
-    date_inscription = fake.date_between(start_date="-5y", end_date="today")
+    customer_data = {
+        "nom": fake.name(),
+        "email": fake.email(),
+        "ville": fake.city(),
+        "date_naissance": fake.date_of_birth(minimum_age=18, maximum_age=80),
+        "date_inscription": fake.date_between(start_date="-5y", end_date="today")
+    }
+
+    try:
+        customer_obj = Customer(**customer_data)
+    except ValidationError as e:
+        print("❌ Customer invalide :", e)
+        continue
 
     cursor.execute("""
         INSERT INTO customers (nom, email, ville, date_naissance, date_inscription)
         VALUES (%s, %s, %s, %s, %s)
         RETURNING id;
-    """, (nom, email, ville, date_naissance, date_inscription))
+    """, (
+        customer_obj.nom,
+        customer_obj.email,
+        customer_obj.ville,
+        customer_obj.date_naissance,
+        customer_obj.date_inscription
+    ))
 
     customer_id = cursor.fetchone()[0]
     customer_ids.append(customer_id)
 
     # ----- Products -----
-    nom_produit = f"{fake.word().capitalize()} {fake.word().capitalize()}"
-    categorie_produit = random.choice(categories)
-    prix = round(random.uniform(5, 500), 2)
+    product_data = {
+        "nom_produit": f"{fake.word().capitalize()} {fake.word().capitalize()}",
+        "categorie_produit": random.choice(categories),
+        "prix": round(random.uniform(5, 500), 2)
+    }
+
+    try:
+        product_obj = Product(**product_data)
+    except ValidationError as e:
+        print("❌ Product invalide :", e)
+        continue
 
     cursor.execute("""
         INSERT INTO products (nom_produit, categorie_produit, prix)
         VALUES (%s, %s, %s)
         RETURNING id;
-    """, (nom_produit, categorie_produit, prix))
+    """, (
+        product_obj.nom_produit,
+        product_obj.categorie_produit,
+        product_obj.prix
+    ))
 
     product_id = cursor.fetchone()[0]
     product_ids.append(product_id)
@@ -108,52 +136,79 @@ for _ in range(30):
 conn.commit()
 
 # ---------------------------------------------------------
-# 3) Génération des orders + order_items
+# 3) Génération des orders + order_items (avec validation Pydantic)
 # ---------------------------------------------------------
 
 for _ in range(30):
 
-    # 1) Choisir un customer existant
     customer_id = random.choice(customer_ids)
 
-    created_at = fake.date_time_between(start_date="-2y", end_date="now")
-    status = random.choice(["en_attente", "expediee", "livree", "annulee"])
+    order_data = {
+        "customer_id": customer_id,
+        "created_at": fake.date_time_between(start_date="-2y", end_date="now"),
+        "total_price_at": 0,
+        "status": random.choice(["en_attente", "expediee", "livree", "annulee"])
+    }
 
-    # On insère l’order avec total_price_at = 0 (on mettra à jour après)
+    try:
+        order_obj = Order(**order_data)
+    except ValidationError as e:
+        print("❌ Order invalide :", e)
+        continue
+
     cursor.execute("""
         INSERT INTO orders (customer_id, created_at, total_price_at, status)
         VALUES (%s, %s, %s, %s)
         RETURNING id;
-    """, (customer_id, created_at, 0, status))
+    """, (
+        order_obj.customer_id,
+        order_obj.created_at,
+        order_obj.total_price_at,
+        order_obj.status
+    ))
 
     order_id = cursor.fetchone()[0]
     order_ids.append(order_id)
 
-    # 2) Générer entre 1 et 4 order_items
     total_price = 0
 
+    # ----- OrderItems -----
     for _ in range(random.randint(1, 4)):
 
         product_id = random.choice(product_ids)
 
-        # Récupérer le prix actuel du produit
         cursor.execute("SELECT prix FROM products WHERE id = %s;", (product_id,))
         prix_unitaire = cursor.fetchone()[0]
 
-        quantity = random.randint(1, 5)
+        item_data = {
+            "order_id": order_id,
+            "product_id": product_id,
+            "quantity": random.randint(1, 5),
+            "prix_unitaire": float(prix_unitaire)
+        }
+
+        try:
+            item_obj = OrderItem(**item_data)
+        except ValidationError as e:
+            print("❌ OrderItem invalide :", e)
+            continue
 
         cursor.execute("""
             INSERT INTO order_items (order_id, product_id, quantity, prix_unitaire)
             VALUES (%s, %s, %s, %s)
             RETURNING id;
-        """, (order_id, product_id, quantity, prix_unitaire))
+        """, (
+            item_obj.order_id,
+            item_obj.product_id,
+            item_obj.quantity,
+            item_obj.prix_unitaire
+        ))
 
         item_id = cursor.fetchone()[0]
         order_item_ids.append(item_id)
 
-        total_price += prix_unitaire * quantity
+        total_price += item_obj.prix_unitaire * item_obj.quantity
 
-    # 3) Mise à jour du total de la commande
     cursor.execute("""
         UPDATE orders
         SET total_price_at = %s
