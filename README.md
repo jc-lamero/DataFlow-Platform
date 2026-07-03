@@ -31,19 +31,19 @@ Sources de données
 
 ### Phases du projet :
 
-## Phase 0 — Fondations
+**Phase 0 — Fondations**
 - PostgreSQL local avec données e-commerce (clients, commandes, produits)
 - Script Python pour générer des données réalistes avec Faker
 - Modèles Pydantic V2 pour valider les données
 - Tests pytest + CI/CD GitHub Actions
 
-**Phase 1 — Ingestion Batch avec Airbyte **
+**Phase 1 — Ingestion Batch avec Airbyte (Actuellement à cette phase)**
 - Installer Airbyte via Docker
 - Connecter PostgreSQL → S3 (Bronze layer)
 - Comprendre les connecteurs no-code/low-code
 - Planifier les syncs dans Airflow
 
-**Phase 2 — Traitement PySpark (Actuellement à cette phase)**
+**Phase 2 — Traitement PySpark **
 - Installer Spark local via Docker
 - Lire les fichiers Parquet depuis S3
 - Transformations Spark : nettoyage, agrégations, joins
